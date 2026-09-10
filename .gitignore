@@ -1,0 +1,40 @@
+# Python byte code and caches
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+
+# Datasets and cache
+data/cache/
+data/FashionMNIST/
+*.gz
+*.ubyte
+.cache/
+
+# Papers and PDFs
+paper/
+*.pdf
+
+# Jupyter Notebook checkpoints
+.ipynb_checkpoints/
+*/.ipynb_checkpoints/*
+
+# Virtual environments
+venv/
+env/
+.env
+.venv
+ENV/
+
+# IDE and OS
+.idea/
+.vscode/
+*.swp
+*.swo
+.DS_Store
+Thumbs.db
+
+# Scratch and logs
+*.log
+scratch/
