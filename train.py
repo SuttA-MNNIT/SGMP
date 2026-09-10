@@ -75,19 +75,54 @@ def train_score_net(score_net, train_loader, epochs=None, device=None):
             
             noise = torch.randn_like(x)
             
-            # Multi-corruption augmentation: occasionally mix in impulse noise or blur
+            # Multi-corruption augmentation: train score net on diverse corruption types
+            # so it can denoise blur, contrast shifts, fog, impulse noise, and cutout
             aug_choice = torch.rand(1).item()
-            if aug_choice < 0.15:
-                # Impulse noise blend
+            if aug_choice < 0.12:
+                # Impulse noise blend (salt-and-pepper)
                 mask = (torch.rand_like(x) < 0.10).float()
                 salt = (torch.rand_like(x) < 0.5).float()
                 x_base = x * (1.0 - mask) + salt * mask
-            elif aug_choice < 0.30:
-                # Random cutout
+            elif aug_choice < 0.24:
+                # Random cutout / occlusion
                 x_base = x.clone()
                 cx = torch.randint(4, 20, (1,)).item()
                 cy = torch.randint(4, 20, (1,)).item()
                 x_base[:, :, cy:cy+6, cx:cx+6] = 0.0
+            elif aug_choice < 0.38:
+                # Defocus blur via Gaussian smoothing (σ ∈ [0.8, 2.5])
+                x_base = x.clone()
+                blur_sigma = 0.8 + torch.rand(1).item() * 1.7
+                kernel_size = int(2 * round(2 * blur_sigma) + 1)
+                if kernel_size % 2 == 0:
+                    kernel_size += 1
+                kernel_size = max(3, min(kernel_size, 11))
+                # Create 1D Gaussian kernel and apply separable convolution
+                coords = torch.arange(kernel_size, dtype=torch.float32, device=device) - kernel_size // 2
+                gauss_1d = torch.exp(-coords ** 2 / (2 * blur_sigma ** 2))
+                gauss_1d = gauss_1d / gauss_1d.sum()
+                gauss_2d = gauss_1d.unsqueeze(1) @ gauss_1d.unsqueeze(0)
+                gauss_2d = gauss_2d.view(1, 1, kernel_size, kernel_size).expand(x.shape[1], -1, -1, -1)
+                pad_size = kernel_size // 2
+                x_padded = F.pad(x, [pad_size] * 4, mode='reflect')
+                x_base = F.conv2d(x_padded, gauss_2d, groups=x.shape[1])
+                x_base = torch.clamp(x_base, 0.0, 1.0)
+            elif aug_choice < 0.50:
+                # Contrast reduction (c ∈ [0.25, 0.70])
+                c_factor = 0.25 + torch.rand(1).item() * 0.45
+                means = x.mean(dim=[2, 3], keepdim=True)
+                x_base = (x - means) * c_factor + means
+                x_base = torch.clamp(x_base, 0.0, 1.0)
+            elif aug_choice < 0.60:
+                # Fog-like luminance shift (additive uniform brightness)
+                fog_strength = 0.15 + torch.rand(1).item() * 0.35
+                # Create a smooth fog gradient
+                h, w = x.shape[2], x.shape[3]
+                fog_y = torch.linspace(0.3, 0.8, h, device=device).view(1, 1, h, 1)
+                fog_x = torch.linspace(0.3, 0.8, w, device=device).view(1, 1, 1, w)
+                fog_layer = fog_y * fog_x
+                x_base = (1.0 - fog_strength) * x + fog_strength * fog_layer
+                x_base = torch.clamp(x_base, 0.0, 1.0)
             else:
                 x_base = x
                 
